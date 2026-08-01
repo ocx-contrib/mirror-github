@@ -1,0 +1,113 @@
+extends: ../mirror-base.yml
+
+name: cli
+
+# Logical index package `github/cli` at the physical path
+# `ghcr.io/ocx-contrib/github/cli` — slash segments, never hyphen-flattened.
+# The first segment must be this repo's own GitHub owner: GITHUB_TOKEN only
+# authorises packages owned by the repo the workflow runs in.
+#
+# Succeeds the flat `ocx.sh/gh` coordinate this repository published before the
+# grouped layout, the same way mirror-kitware/cmake succeeds mirror-cmake.
+target:
+  registry: ghcr.io
+  repository: ocx-contrib/github/cli
+
+source:
+  type: github_release
+  owner: cli
+  repo: cli
+  tag_pattern: "^v(?P<version>\\d+\\.\\d+\\.\\d+)$"
+
+# ─── libc gate (Phase 3.5) — the evidence, not the conclusion ───────────────
+#
+# `gh` is a pure-Go binary built without cgo, so upstream ships ONE Linux build
+# per arch and it is fully static. Measured on 2.97.0:
+#
+#   $ file gh_2.97.0_linux_amd64/bin/gh
+#   ELF 64-bit LSB executable, x86-64, statically linked, Go BuildID=…, stripped
+#   $ readelf -l … | grep INTERP  → (none)
+#   $ readelf -d … | grep NEEDED  → (none)
+#   $ file gh_2.97.0_linux_arm64/bin/gh
+#   ELF 64-bit LSB executable, ARM aarch64, statically linked, …
+#
+# No PT_INTERP and no DT_NEEDED means the artifact requires nothing of the
+# host, so both Linux keys are BARE — no `+libc.*` suffix. There is no glibc
+# counterpart to split against. Container legs (ubuntu + alpine + fedora) live
+# in ../mirror-base.yml and are what turn that claim into evidence.
+#
+# ─── Scope (verified against 2.76.0, the floor, and 2.97.0) ─────────────────
+#
+# Upstream also publishes, and this mirror deliberately does not carry:
+#   linux_386, linux_armv6, windows_386        — no GHA runner
+#   *.deb, *.rpm, *.msi, macOS_universal.pkg   — OS package formats, not bundles
+#   checksums.txt                              — sidecar
+#
+# The anchored ^…$ regexes are what keep those out. Resolution verified BOTH
+# ways at both versions: each of the six patterns matches EXACTLY one asset. A
+# pattern matching zero is silently skipped, not an error — it would yield a
+# green run with a missing platform.
+assets:
+  linux/amd64:
+    - "^gh_\\d+\\.\\d+\\.\\d+_linux_amd64\\.tar\\.gz$"
+  linux/arm64:
+    - "^gh_\\d+\\.\\d+\\.\\d+_linux_arm64\\.tar\\.gz$"
+  darwin/amd64:
+    - "^gh_\\d+\\.\\d+\\.\\d+_macOS_amd64\\.zip$"
+  darwin/arm64:
+    - "^gh_\\d+\\.\\d+\\.\\d+_macOS_arm64\\.zip$"
+  windows/amd64:
+    - "^gh_\\d+\\.\\d+\\.\\d+_windows_amd64\\.zip$"
+  windows/arm64:
+    - "^gh_\\d+\\.\\d+\\.\\d+_windows_arm64\\.zip$"
+
+# Linux + macOS tarballs/zips wrap the payload in a versioned dir
+# (gh_X.Y.Z_<os>_<arch>/bin/gh) → strip 1. The Windows zip is flat
+# (bin/gh.exe at root) → strip 0. Both land bin/ under the content root,
+# so a single metadata.json (PATH = ${installPath}/bin) serves all.
+asset_type:
+  default:
+    type: archive
+    strip_components: 1
+  platforms:
+    windows/amd64:
+      type: archive
+      strip_components: 0
+    windows/arm64:
+      type: archive
+      strip_components: 0
+
+# `verify`, not the base's `auto`: the interface is a single binary on every
+# platform, so the list is writable by hand and worth freezing. Upstream adding
+# or renaming an executable under bin/ then reds the run instead of silently
+# changing the published interface.
+bin_scan: verify
+
+metadata:
+  default: metadata.json
+
+catalog:
+  logo: logo.svg
+
+versions:
+  min: "2.76.0"
+  new_per_run: 5
+  poll_interval: "0 */6 * * *"
+
+tests:
+  # `script:` resolves from the REPOSITORY ROOT — unlike `metadata.default` and
+  # `catalog.logo` above, which resolve against this spec's own directory.
+  - name: smoke
+    script: cli/tests/smoke.star
+
+annotations:
+  # From the Phase 1.5 license gate:
+  #   $ gh api repos/cli/cli/license --jq '.license.spdx_id'
+  #   MIT
+  org.opencontainers.image.licenses: "MIT"
+
+announce:
+  # Spelled out, not derived from target.repository — the logical name and the
+  # physical path are related by convention only.
+  package: github/cli
+  fork: ocx-contrib/index

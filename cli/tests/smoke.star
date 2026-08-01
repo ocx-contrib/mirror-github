@@ -1,4 +1,4 @@
-# tests/smoke.star — stable across upstream releases.
+# cli/tests/smoke.star — stable across upstream releases.
 # Single binary `gh`. Branch on the typed OS constant (never ocx.platform()).
 GH = "gh.exe" if ocx.target_platform.os == ocx.os.Windows else "gh"
 
@@ -15,5 +15,12 @@ expect.eq(ocx.run(GH, "help", "pr").exit_code, 0)
 expect.eq(ocx.run(GH, "help", "issue").exit_code, 0)
 expect.eq(ocx.run(GH, "help", "release").exit_code, 0)
 expect.eq(ocx.run(GH, "help", "api").exit_code, 0)
+
+# Generated output, not prose: the cobra completion script is emitted offline
+# and its helper functions are namespaced `__gh_*` — a stable token that only
+# appears if the command tree actually rendered.
+c = ocx.run(GH, "completion", "-s", "bash")
+expect.ok(c)
+expect.contains(c.stdout, "__gh_")
 
 # Tier 4: not applicable — metadata.json declares PATH only (no non-PATH env var).
